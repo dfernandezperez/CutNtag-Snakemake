@@ -1,8 +1,8 @@
-# Pasini's lab ChIP-seq pipeline
+# Pasini's lab CutNtag/CutNrun pipeline
 
 [![Snakemake](https://img.shields.io/badge/snakemake-≥5.4.3-brightgreen.svg)](https://snakemake.bitbucket.io)
 
-Snakemake-based ChIP-seq pipeline to be run in our PBS-based HPC using singularity containers. The singularity image that is used to run this pipeline is created from [this](https://github.com/dfernandezperez/Docker/blob/master/ChIP-seq/Dockerfile) docker container.
+Snakemake-based CutNtag and run pipeline to be run in our PBS-based HPC using singularity containers. The singularity image that is used to run this pipeline is created from [this](https://github.com/dfernandezperez/Docker/blob/master/ChIP-seq/Dockerfile) docker container.
 
 ## Setup
 
@@ -101,4 +101,3 @@ At the end of the `Snakefile` you will find all the possible target rules and th
 ## To Do's
 
 * Migrate 100% to snakemake profiles and stop using the `cluster.yaml` configuration.
-* Adding the input-normalization of spike-in samples in case the input is provided.
