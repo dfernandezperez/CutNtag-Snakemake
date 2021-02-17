@@ -1,13 +1,3 @@
-def set_reads(wildcards, input):
-        n = len(input)
-        if n == 1:
-            reads = "{}".format(*input)
-            return reads
-        else:
-            reads = config["params"]["bowtie"]["pe"] + " -1 {} -2 {}".format(*input)
-            return reads
-
-
 rule align:
     input:
         get_fq
@@ -18,11 +8,12 @@ rule align:
         CLUSTER["align"]["cpu"]
     params:
         index  	     = config["ref"]["index"],
-        bowtie 	     = config["params"]["bowtie"]["global"],
+        bowtie2 	 = config["params"]["bowtie2"]["global"],
+        samblaster   = config["params"]["samblaster"],
         reads  	     = set_reads,
         samtools_mem = config["params"]["samtools"]["memory"]
     message:
-        "Aligning {input} with parameters {params.bowtie}"
+        "Aligning {input} with parameters {params.bowtie2}"
     log:
        align   = "results/00log/alignments/{sample}.log",
        rm_dups = "results/00log/alignments/rm_dup/{sample}.log",
@@ -30,9 +21,9 @@ rule align:
         "results/.benchmarks/{sample}.align.benchmark.txt"
     shell:
         """
-        bowtie -p {threads} {params.bowtie} {params.index} {params.reads} 2> {log.align} \
-        | samblaster --removeDups 2> {log.rm_dups} \
-        | samtools view -Sb -F 4 - \
+        bowtie2 -p {threads} {params.bowtie2} -x {params.index} {params.reads} 2> {log.align} \
+        | samblaster {params.samblaster} 2> {log.rm_dups} \
+        | samtools view -q2 -Sb -F 4 - \
         | samtools sort -m {params.samtools_mem}G -@ {threads} -T {output.bam}.tmp -o {output.bam} - 2>> {log.align}
         samtools index {output.bam}
         """
@@ -47,12 +38,13 @@ rule align_spike:
     threads:
         CLUSTER["align"]["cpu"]
     params:
-        index  = config["ref"]["index_spike"],
-        bowtie = config["params"]["bowtie"]["global"],
-        reads  = set_reads,
+        index        = config["ref"]["index_spike"],
+        bowtie2      = config["params"]["bowtie2"]["global"],
+        samblaster   = config["params"]["samblaster"],
+        reads        = set_reads,
         samtools_mem = config["params"]["samtools"]["memory"]
     message:
-        "Aligning {input} with parameters {params.bowtie}"
+        "Aligning {input} with parameters {params.bowtie2}"
     log:
        align   = "results/00log/alignments/{sample}_spike.log",
        rm_dups = "results/00log/alignments/rm_dup/{sample}_spike.log",
@@ -60,8 +52,8 @@ rule align_spike:
         "results/.benchmarks/{sample}.alignSpike.benchmark.txt"
     shell:
         """
-        bowtie -p {threads} {params.bowtie} {params.index} {params.reads} 2> {log.align} \
-        | samblaster --removeDups 2> {log.rm_dups} \
+        bowtie2 -p {threads} {params.bowtie2} -x {params.index} {params.reads} 2> {log.align} \
+        | samblaster {params.samblaster} 2> {log.rm_dups} \
         | samtools view -Sb -F 4 - \
         | samtools sort -m {params.samtools_mem}G -@ {threads} -T {output.bam}.tmp -o {output.bam} - 2>> {log.align}
         samtools index {output.bam}
@@ -101,76 +93,26 @@ rule update_bam:
         samtools index {output} 2>> {log}
         """
 
-
-def set_reads_spike(wildcards, input):
-        n = len(input)
-        assert n == 2 or n == 3, "input->sample must have 2 (sample + input) or 3 (sample + input + spike) elements"
-        if n == 2:
-            reads = "workflow/scripts/bam2bigwig.py"
-            return reads
-        if n == 3:
-            reads = "workflow/scripts/bam2bigwig_spike.py --spike {} --chrSizes ".format(input.spike) + config["ref"]["chr_sizes"]
-            return reads
-
-
 rule bam2bigwig:
-    input: 
-        unpack(get_bam_cntrl)
-    output:  
-        "results/06bigwig/{sample}_{control}.bw"
-    params: 
-        read_exten = set_read_extension,
-        reads      = set_reads_spike,
-        params     = config["bam2bigwig"]["other"]
-    log: 
-        "results/00log/bam2bw/{sample}_{control}_bigwig.bam2bw"
-    threads: 
-        CLUSTER["bam2bigwig"]["cpu"]
-    message: 
-        "making input subtracted bigwig for sample {wildcards.sample} with input {input.reference}"
-    benchmark:
-        "results/.benchmarks/{sample}_{control}.bam2bw.benchmark.txt"
-    shell:
-        """
-        python {params.reads} \
-        --case {input.case} \
-        --reference {input.reference} \
-        --bigwig {output} \
-        --threads {threads} \
-        --otherParams {params.read_exten} {params.params} &> {log}
-        """
-
-
-def set_reads_spike2(wildcards, input):
-        n = len(input)
-        assert n == 1 or n == 2, "input->sample must have 1 (sample) or 2 (sample + spike) elements"
-        if n == 1:
-            reads = "workflow/scripts/bam2bigwig_noSubtract.py"
-            return reads
-        if n == 2:
-            reads = "workflow/scripts/bam2bigwig_spike_noSubtract.py --spike {}".format(input.spike)
-            return reads
-
-rule bam2bigwig_noSubstract:
     input: 
         unpack(get_bam_spike)
     output:  
-        "results/06bigwig/noSubtract/{sample}.bw"
+        "results/06bigwig/{sample}.bw"
     params: 
         read_exten = set_read_extension,
-        reads      = set_reads_spike2,
+        reads      = set_reads_spike,
         params     = config["bam2bigwig"]["other"]
     log: 
         "results/00log/bam2bw/{sample}_bigwig.bam2bw"
     threads: 
         CLUSTER["bam2bigwig"]["cpu"]
     message: 
-        "making input subtracted bigwig for sample {wildcards.sample}"
+        "making bigwig for sample {wildcards.sample}"
     shell:
         """
         python {params.reads} \
         --case {input.case} \
-        --bigwig {output} \
+        --output {output} \
         --threads {threads} \
         --otherParams {params.read_exten} {params.params} &> {log}
         """
@@ -178,7 +120,7 @@ rule bam2bigwig_noSubstract:
 
 rule bigwig2server:
     input: 
-        bw         = "results/06bigwig/noSubtract/{sample}.bw",
+        bw         = "results/06bigwig/{sample}.bw",
         samblaster = "results/00log/alignments/rm_dup/{sample}.log",
         bowtie     = "results/00log/alignments/{sample}.log"
     output:
@@ -188,18 +130,20 @@ rule bigwig2server:
         antibody = lambda wildcards : SAMPLES.AB[wildcards.sample],
         genome   = lambda wildcards : SAMPLES.GENOME[wildcards.sample],
         run      = lambda wildcards : SAMPLES.RUN[wildcards.sample],
-        chip     = lambda wildcards : str("ChIPseq") if SAMPLES.SPIKE[wildcards.sample] == False else str("ChIPseqSpike")
+        chip     = lambda wildcards : str("CutNtag") if SAMPLES.SPIKE[wildcards.sample] == False else str("CutNtagSpike")
     run:
         # Get number of removed reported reads by bowtie
         with open(input.bowtie,"r") as fi:
             for ln in fi:
-                if ln.startswith("# reads with at least one reported alignment:"):
-                    nreads = int( str.split(ln)[8] )
-
+                lines = str.split(ln)
+                if "exactly" in lines:
+                    nreads = int(lines[0])
+                if ">1" in lines:
+                    nreads += int(lines[0])
         # Get number of removed reads
         with open(input.samblaster,"r") as fi:
             for ln in fi:
-                if ln.startswith("samblaster: Removed "):
+                if ln.startswith("samblaster: Marked "):
                     removed_reads = int( str.split(ln)[2] )
 
         # Total number of final reads is reported by bowtie minus duplicated removed

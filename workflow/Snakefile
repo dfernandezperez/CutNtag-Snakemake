@@ -7,7 +7,7 @@ from snakemake.utils import validate, min_version
 min_version("5.4.3")
 
 ##### Singularity image path
-singularity: "/hpcnfs/data/DP/Singularity/dfernandezperez-bioinformatics-singularity-master-chipseq.simg"
+singularity: "/hpcnfs/data/DP/Singularity/cutntag_160221.sif"
 
 ##### config file
 configfile: "configuration/config.yaml"
@@ -26,36 +26,36 @@ CLUSTER     = yaml.load(open(config['cluster'], 'r'), Loader=yaml.FullLoader)
 #-----------------------------------------------------------------------------------------------------------------------
 # DETERMINE ALL THE OUTPUT FILES TO RUN SNAKEMAKE
 #-----------------------------------------------------------------------------------------------------------------------
-# Subset the samples that are IP (no inputs)
-# Get the names of the input files and genome version for calling peak and creating bigwig files
-IPS          = SAMPLES[ SAMPLES["IS_INPUT"] == False ]
-ALL_IP       = IPS.NAME
-ALL_CONTROLS = IPS.INPUT
-CONTROLS_G   = IPS.GENOME
+# I use 2 conditionals (== FALSE and == False) to be more flexible with the content of SAMPLES.INPUT column
+SAMPLES.INPUT = ["NoInput" if i == "FALSE" or i == False else i for i in SAMPLES.INPUT] # Set "NoInput" as the "input name" of the samples without input.
+IPS           = SAMPLES[ SAMPLES["IS_INPUT"] == False ] # Select all IPs
 
 
-# Define the output files for the rule ALL
-ALL_PEAKANNOT    = expand("results/04peak_annot/{sample}_{control}/{sample}_peaks_p" + config["params"]["macs2"]["filt_peaks_pval"] + ".annot", zip, sample = ALL_IP, control = ALL_CONTROLS)
-ALL_PEAKS        = expand("results/03peak_macs2/{sample}_{control}/{sample}_peaks.narrowPeak", zip, sample = ALL_IP, control = ALL_CONTROLS)
-ALL_BROAD_PEAKS  = expand("results/03peak_macs2/{sample}_{control}/broad/{sample}_peaks.broadPeak", zip, sample=ALL_IP, control=ALL_CONTROLS)
-ALL_BIGWIG       = expand("results/06bigwig/{sample}_{control}.bw", zip, sample = ALL_IP, control = ALL_CONTROLS)
-ALL_GCBIAS       = expand("results/01qc/GCbias/{sample}_{control}_GCbias.pdf", zip, sample = ALL_IP, control = ALL_CONTROLS)
-ALL_QC           = ["results/01qc/multiqc/multiqc_report.html"]
-ALL_BIGWIG_NOSUB = expand("results/06bigwig/noSubtract/{sample}.bw", sample = SAMPLES.NAME)
-ALL_BW2SERVER    = expand("results/temp_file_{sample}_{control}.txt",  zip, sample = ALL_IP, control = ALL_CONTROLS)
+#-------------------- Define output files for IPs -----------------------#
+ALL_PEAKANNOT_macs  = expand(expand("results/04peak_annot/macs2/{sample}_{control}/{sample}_peaks_p{{pval}}.annot", zip, sample = IPS.NAME, control = IPS.INPUT), pval = config["params"]["macs2"]["filt_peaks_pval"])
+ALL_PEAKANNOT_seacr = expand(expand("results/04peak_annot/seacr/{sample}_{control}/{sample}_peaks_p{{top_auc}}.annot", zip, sample = IPS.NAME, control = IPS.INPUT), top_auc = config["params"]["seacr"]["top_auc"])
+
+ALL_BROAD_PEAKS  = expand("results/03peak_macs2/{sample}_{control}/broad/{sample}_peaks.broadPeak", zip, sample = IPS.NAME, control = IPS.INPUT)
+ALL_GCBIAS       = expand("results/01qc/GCbias/{sample}_{control}_GCbias.pdf", zip, sample = IPS.NAME, control = IPS.INPUT)
+ALL_BW2SERVER    = expand("results/temp_file_{sample}_{control}.txt",  zip, sample = IPS.NAME, control = IPS.INPUT)
+ALL_BIGWIG       = expand("results/06bigwig/{sample}.bw", sample = SAMPLES.NAME)
+
+
+#-------------------- Define general outputs -----------------------#
+ALL_QC = ["results/01qc/multiqc/multiqc_report.html"]
 
 
 #-------------------- Set variables and target files to prepare data for GEO upload -----------------------#
-ALL_IP_SE = set(units[units['fq2'].isnull()]['sample'])
-ALL_IP_PE = set(units[units['fq2'].notnull()]['sample'])
+ALL_SAMPLES_SE = set(units[units['fq2'].isnull()]['sample'])
+ALL_SAMPLES_PE = set(units[units['fq2'].notnull()]['sample'])
 
-ALL_FASTQ_GEO_PE = expand(["results/GEO/fastq/{sample}.1.fastq.gz", "results/GEO/fastq/{sample}.2.fastq.gz"], sample = ALL_IP_PE)
-ALL_FASTQ_GEO_SE = expand("results/GEO/fastq/{sample}.se.fastq.gz", sample = ALL_IP_SE)
-ALL_PEAKS_GEO    = expand(
-    "results/GEO/peaks/{sample}_{control}_peaks_p" + config["params"]["macs2"]["filt_peaks_pval"] + ".bed", 
+ALL_FASTQ_GEO_PE     = expand(["results/GEO/fastq/{sample}.1.fastq.gz", "results/GEO/fastq/{sample}.2.fastq.gz"], sample = ALL_SAMPLES_PE)
+ALL_FASTQ_GEO_SE     = expand("results/GEO/fastq/{sample}.se.fastq.gz", sample = ALL_SAMPLES_PE)
+ALL_PEAKS_GEO        = expand(
+    "results/GEO/peaks/{sample}_{control}_peaks_p" + str(config["params"]["macs2"]["filt_peaks_pval"]) + ".bed", 
     zip, 
-    sample = ALL_IP,
-    control = ALL_CONTROLS
+    sample = IPS.NAME,
+    control = IPS.INPUT
     )
 
 
@@ -69,10 +69,10 @@ localrules: cp_fastq_pe, cp_fastq_se, filter_peaks, all, all_broad, all_GC, all_
 # Define multiple outputs based on the output files desired
 #-----------------------------------------------------------------------------------------------------------------------
 rule all:
-    input:  ALL_PEAKS + ALL_PEAKANNOT + ALL_BIGWIG + ALL_QC + ALL_BIGWIG_NOSUB
+    input:  ALL_PEAKANNOT_macs + ALL_PEAKANNOT_seacr + ALL_BIGWIG + ALL_QC
 
 rule all_broad:
-    input:  ALL_PEAKS + ALL_PEAKANNOT + ALL_BIGWIG + ALL_QC + ALL_BIGWIG_NOSUB + ALL_BROAD_PEAKS
+    input:  ALL_PEAKANNOT_macs + ALL_PEAKANNOT_seacr + ALL_BIGWIG + ALL_QC + ALL_BROAD_PEAKS
 
 rule all_GC:
     input:  ALL_GCBIAS
@@ -81,7 +81,8 @@ rule all_server:
     input:  ALL_BW2SERVER
 
 rule all_geo:
-    input: "results/GEO/md5sum/md5sum_peaks.txt", "results/GEO/md5sum/md5sum_fastqs.txt", ALL_PEAKS_GEO + ALL_FASTQ_GEO_SE + ALL_FASTQ_GEO_PE
+    input: "results/GEO/md5sum/md5sum_peaks.txt", "results/GEO/md5sum/md5sum_fastqs.txt", \
+    ALL_PEAKS_GEO + ALL_FASTQ_GEO_SE + ALL_FASTQ_GEO_PE
 
 
 ##### load rules #####
@@ -91,6 +92,7 @@ include: "rules/align.smk"
 include: "rules/peaks.smk"
 include: "rules/qc.smk"
 include: "rules/prepare2GEO.smk"
+include: "rules/seacr.smk"
 
 ##### handle possible errors, clean temp folders #####
 # Remove the folder used to create the fastq files (snakemake removes the tmp files but not the folder...)

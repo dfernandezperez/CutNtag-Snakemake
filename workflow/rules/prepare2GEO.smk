@@ -46,10 +46,10 @@ rule geo_peaks:
 rule md5sum_peaks:
     input:
         expand(
-            "results/GEO/peaks/{sample}_{control}_peaks_p" + config["params"]["macs2"]["filt_peaks_pval"] + ".bed",
+            "results/GEO/peaks/{sample}_{control}_peaks_p" + str(config["params"]["macs2"]["filt_peaks_pval"]) + ".bed",
             zip,
-            sample  = ALL_IP,
-            control = ALL_CONTROLS
+            sample  = IPS.NAME,
+            control = IPS.INPUT
         )
     output:
         "results/GEO/md5sum/md5sum_peaks.txt"
@@ -62,8 +62,8 @@ rule md5sum_peaks:
 
 rule md5sum_fastqs:
     input:
-        expand("results/GEO/fastq/{sample}.se.fastq.gz", sample = ALL_IP_SE),
-        expand(["results/GEO/fastq/{sample}.1.fastq.gz", "results/GEO/fastq/{sample}.2.fastq.gz"], sample = ALL_IP_PE)
+        expand("results/GEO/fastq/{sample}.se.fastq.gz", sample = ALL_SAMPLES_SE),
+        expand(["results/GEO/fastq/{sample}.1.fastq.gz", "results/GEO/fastq/{sample}.2.fastq.gz"], sample = ALL_SAMPLES_PE)
     output:
         "results/GEO/md5sum/md5sum_fastqs.txt"
     log:

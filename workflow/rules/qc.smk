@@ -38,28 +38,6 @@ rule fastqc:
         fastqc -o {params.folder_name} -f fastq -t {threads} --noextract {params.folder_name}/{params.tmp} 2> {log}
         """
 
-
-# ------- PhantomPeakQual ------- #
-rule phantom_peak_qual:
-    input: 
-        "results/02aln/{sample}.bam"
-    output:
-        "results/01qc/phantompeakqual/{sample}.spp.out"
-    log:
-        "results/00log/phantompeakqual/{sample}_phantompeakqual.log"
-    threads:
-        CLUSTER["phantom_peak_qual"]["cpu"]
-    params:
-        out_dir = "results/01qc/phantompeakqual"
-    message:
-        "Running phantompeakqual for {wildcards.sample}"
-    shell:
-        """
-        /opt/miniconda2/bin/Rscript --vanilla workflow/scripts/run_spp_nodups.R \
-        -c={input[0]} -savp -rf -p={threads} -odir={params.out_dir}  -out={output} -tmpdir={params.out_dir}  2> {log}
-        """
-
-
 # ------- InsertSize calculation ------- #
 rule insert_size:
     input:
@@ -85,29 +63,34 @@ rule insert_size:
 
 
 # ------- Deeptools quality control ------- #
+def input_fingerprint(wildcards):
+    if has_input(wildcards.sample):
+        return { "case": "results/02aln/{sample}.bam".format(sample=wildcards.sample),
+             "reference": "results/02aln/{control}.bam".format(control=wildcards.control) }
+    else:
+        return { "case": "results/02aln/{sample}.bam".format(sample=wildcards.sample) }
+
 rule plotFingerprint:
     input: 
-        case      = "results/02aln/{sample}.bam",
-        reference = "results/02aln/{control}.bam", 
+        unpack(input_fingerprint)
     output: 
         qualMetrics = "results/01qc/fingerPrint/{sample}_{control}.qualityMetrics.tsv",
         raw_counts  = "results/01qc/fingerPrint/{sample}_{control}.rawcounts.tsv",
-        plot        = "results/01qc/fingerPrint/{sample}_{control}.plot.pdf",
-    log:
-        "results/00log/plotFingerprint/{sample}_{control}.log"
+        plot        = "results/01qc/fingerPrint/{sample}_{control}.plot.pdf"
     params:
-        read_exten = set_read_extension,
-    threads:
-        CLUSTER["plotFingerprint"]["cpu"]
+         read_exten = set_read_extension
+    log:
+        "results/00log/fingerPrint/{sample}_{control}.log"
     shell:
         """
         plotFingerprint -b {input} \
-        -p {threads} \
         --outQualityMetrics {output.qualMetrics} \
         --outRawCounts {output.raw_counts} \
+        --extendReads {params.read_exten} \
         --plotFile {output.plot}
         """
 
+# ------- Deeptools quality control ------- #
 rule GC_bias:
     input: 
         bam = "results/02aln/{sample}.bam",
@@ -151,11 +134,10 @@ rule multiQC_inputs:
         expand("results/00log/alignments/{sample}.log", sample = SAMPLES.NAME),
         expand("results/01qc/fqc/{sample}_fastqc.zip", sample = SAMPLES.NAME),
         expand("results/01qc/insert_size/{sample}.isize.txt", sample = SAMPLES.NAME),
-        expand("results/01qc/phantompeakqual/{sample}.spp.out", sample = ALL_IP),
         expand("results/00log/alignments/rm_dup/{sample}.log", sample = SAMPLES.NAME),
-        expand("results/01qc/fingerPrint/{sample}_{control}.qualityMetrics.tsv", zip, sample = ALL_IP, control = ALL_CONTROLS),
-        expand("results/01qc/fingerPrint/{sample}_{control}.rawcounts.tsv", zip, sample = ALL_IP, control = ALL_CONTROLS),
-        expand("results/03peak_macs2/{sample}_{control}/{sample}_peaks.xls", zip, sample = ALL_IP, control = ALL_CONTROLS)
+        expand("results/01qc/fingerPrint/{sample}_{control}.qualityMetrics.tsv", zip, sample = IPS.NAME, control = IPS.INPUT),
+        expand("results/01qc/fingerPrint/{sample}_{control}.rawcounts.tsv", zip, sample = IPS.NAME, control = IPS.INPUT),
+        expand("results/03peak_macs2/{sample}_{control}/{sample}_peaks.xls", zip, sample = IPS.NAME, control = IPS.INPUT)
     output: 
         file = "results/01qc/multiqc/multiqc_inputs.txt"
     message:
